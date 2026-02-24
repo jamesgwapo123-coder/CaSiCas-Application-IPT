@@ -1,0 +1,8 @@
+[phases.setup]
+cmds = ["pip install -r requirements.txt"]
+
+[phases.build]
+cmds = ["python manage.py collectstatic --noinput"]
+
+[start]
+cmd = "daphne casicas.asgi:application --port ${PORT:-8000} --bind 0.0.0.0"
