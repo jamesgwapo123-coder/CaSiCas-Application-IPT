@@ -877,7 +877,7 @@ The system architecture eliminates the need for a traditional custom API server 
 
 > **Developed by:** *CaSiCaS Development Team*  
 > **Course:** *Information and Programming Technology (IPT)*  
-> **Institution:** *University of Cebu*  
+> **Institution:** *Cebu Eastern College, Inc.*  
 > **Year:** *2026*
 
 ---
