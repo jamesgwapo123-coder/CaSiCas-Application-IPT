@@ -88,12 +88,56 @@ LISTINGS_DATA = [
 ]
 
 
-CEBU_CENTER = (10.3157, 123.8854)
+# Pre-picked land-only coordinates in Cebu City proper
+CEBU_COORDS = [
+    (10.3157, 123.8854),   # Colon / Downtown
+    (10.3103, 123.8916),   # Capitol area
+    (10.3200, 123.8910),   # Fuente Osmena
+    (10.3250, 123.8950),   # Lahug
+    (10.3300, 123.8990),   # Banilad
+    (10.3350, 123.9010),   # Talamban
+    (10.3070, 123.8870),   # San Nicolas
+    (10.3020, 123.8850),   # Basak San Nicolas
+    (10.2980, 123.8830),   # Labangon
+    (10.2930, 123.8810),   # Mambaling
+    (10.3110, 123.8940),   # Guadalupe
+    (10.3180, 123.8920),   # Kamputhaw
+    (10.3220, 123.8870),   # T. Padilla
+    (10.3050, 123.8900),   # Sambag
+    (10.3130, 123.8860),   # Parian
+    (10.3270, 123.8930),   # Apas
+    (10.3320, 123.8970),   # Kasambagan
+    (10.3380, 123.9020),   # Pit-os
+    (10.3400, 123.9050),   # Busay
+    (10.3000, 123.8870),   # Duljo Fatima
+    (10.2960, 123.8860),   # Quiot
+    (10.3090, 123.8830),   # Calamba
+    (10.3140, 123.8990),   # Mabolo
+    (10.3190, 123.8960),   # Hipodromo
+    (10.2940, 123.8840),   # Bulacao
+    (10.3060, 123.8920),   # V. Rama area
+    (10.3230, 123.8980),   # Banilad South
+    (10.3010, 123.8890),   # Ermita
+    (10.3170, 123.8840),   # Sto. Nino area
+    (10.3280, 123.9000),   # Luz
+    (10.3040, 123.8810),   # Inayawan
+    (10.3360, 123.8960),   # Capitol Hills
+    (10.3120, 123.8950),   # Guadalupe Heights
+    (10.3200, 123.8860),   # Pahina Central
+    (10.3080, 123.8880),   # Tinago
+    (10.2990, 123.8900),   # Pasil
+    (10.3150, 123.8970),   # Archbishop Reyes area
+    (10.3260, 123.8940),   # IT Park area
+    (10.3330, 123.9030),   # Yap
+    (10.3100, 123.8810),   # San Roque
+]
 
 
 def random_cebu_coords():
-    lat = CEBU_CENTER[0] + random.uniform(-0.04, 0.04)
-    lng = CEBU_CENTER[1] + random.uniform(-0.04, 0.04)
+    base = random.choice(CEBU_COORDS)
+    # Tiny jitter so markers don't stack exactly
+    lat = base[0] + random.uniform(-0.001, 0.001)
+    lng = base[1] + random.uniform(-0.001, 0.001)
     return round(lat, 6), round(lng, 6)
 
 
