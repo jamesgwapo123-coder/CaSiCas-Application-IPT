@@ -1,211 +1,157 @@
 /**
- * CaSiCaS API Client — Supabase edition
- * All data goes through Supabase client directly.
+ * CaSiCaS API Client — Django REST Framework edition
+ * All data goes through Django backend API.
  */
-import { supabase } from '../lib/supabase';
+
+const API_URL = import.meta.env.VITE_API_URL || '';
+
+function getToken() {
+    return localStorage.getItem('token');
+}
+
+function authHeaders(extra = {}) {
+    const token = getToken();
+    const headers = { ...extra };
+    if (token) headers['Authorization'] = `Token ${token}`;
+    return headers;
+}
+
+async function apiFetch(path, options = {}) {
+    const url = `${API_URL}${path}`;
+    const res = await fetch(url, {
+        ...options,
+        headers: authHeaders(options.headers || {}),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || err.non_field_errors?.[0] || JSON.stringify(err));
+    }
+    if (res.status === 204) return null;
+    return res.json();
+}
 
 // ──── Listings ────
 
 export async function getListings(filters = {}) {
-    let query = supabase
-        .from('listings')
-        .select('*')
-        .eq('status', 'active')
-        .order('created_at', { ascending: false });
+    const params = new URLSearchParams();
+    if (filters.category && filters.category !== 'all') params.set('category', filters.category);
+    if (filters.listing_type && filters.listing_type !== 'all') params.set('listing_type', filters.listing_type);
+    if (filters.lat) params.set('lat', filters.lat);
+    if (filters.lng) params.set('lng', filters.lng);
+    if (filters.radius) params.set('radius', filters.radius);
 
-    if (filters.category && filters.category !== 'all') {
-        query = query.eq('category', filters.category);
-    }
-    if (filters.listing_type && filters.listing_type !== 'all') {
-        query = query.eq('listing_type', filters.listing_type);
-    }
-    if (filters.seller_id) {
-        query = query.eq('seller_id', filters.seller_id);
-    }
+    const qs = params.toString();
+    const data = await apiFetch(`/api/listings/${qs ? '?' + qs : ''}`);
+    const results = data.results || data;
 
-    const { data, error } = await query;
-    if (error) throw error;
-
-    // Batch-fetch seller usernames
-    const sellerIds = [...new Set(data.map(l => l.seller_id).filter(Boolean))];
-    let sellerMap = {};
-    if (sellerIds.length > 0) {
-        const { data: sellers } = await supabase
-            .from('profiles')
-            .select('id, username, rating, rating_count, avatar_url')
-            .in('id', sellerIds);
-        if (sellers) {
-            sellers.forEach(s => { sellerMap[s.id] = s; });
-        }
-    }
-
-    return data.map((l) => ({
+    return results.map((l) => ({
         ...l,
-        seller_username: sellerMap[l.seller_id]?.username || 'Unknown',
-        seller_rating: sellerMap[l.seller_id]?.rating || 0,
-        seller_rating_count: sellerMap[l.seller_id]?.rating_count || 0,
-        seller_avatar_url: sellerMap[l.seller_id]?.avatar_url || '',
-        category_display: l.category.charAt(0).toUpperCase() + l.category.slice(1),
+        seller_id: l.seller,
+        seller_username: l.seller_username || 'Unknown',
+        seller_rating: l.seller_rating || 0,
+        seller_rating_count: l.seller_rating_count || 0,
+        seller_avatar_url: l.seller_avatar_url || '',
+        category_display: l.category_display || l.category?.charAt(0).toUpperCase() + l.category?.slice(1),
     }));
 }
 
 export async function getMyListings() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
-    return getListings({ seller_id: user.id });
+    const profile = JSON.parse(localStorage.getItem('profile') || '{}');
+    if (!profile.id) throw new Error('Not authenticated');
+    return getListings({ seller_id: profile.id });
 }
 
 export async function createListing(listingData) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const formData = new FormData();
+    formData.append('title', listingData.title);
+    formData.append('description', listingData.description || '');
+    formData.append('price', parseFloat(listingData.price));
+    formData.append('category', listingData.category || 'other');
+    formData.append('listing_type', listingData.listing_type || 'sell');
+    formData.append('latitude', parseFloat(listingData.latitude));
+    formData.append('longitude', parseFloat(listingData.longitude));
+    formData.append('address', listingData.address || '');
+    if (listingData.image_url) formData.append('image_url', listingData.image_url);
+    if (listingData.image instanceof File) formData.append('image', listingData.image);
 
-    const row = {
-        seller_id: user.id,
-        title: listingData.title,
-        description: listingData.description || '',
-        price: parseFloat(listingData.price),
-        category: listingData.category || 'other',
-        listing_type: listingData.listing_type || 'sell',
-        latitude: parseFloat(listingData.latitude),
-        longitude: parseFloat(listingData.longitude),
-        address: listingData.address || '',
-        image_url: listingData.image_url || '',
-    };
-
-    // Handle image upload to Supabase Storage
-    if (listingData.image instanceof File) {
-        const fileName = `${user.id}/${Date.now()}_${listingData.image.name}`;
-        const { data: uploadData, error: uploadErr } = await supabase.storage
-            .from('listings')
-            .upload(fileName, listingData.image);
-        if (uploadErr) throw uploadErr;
-        const { data: urlData } = supabase.storage.from('listings').getPublicUrl(uploadData.path);
-        row.image_url = urlData.publicUrl;
+    const token = getToken();
+    const res = await fetch(`${API_URL}/api/listings/`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Token ${token}` } : {},
+        body: formData,
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || JSON.stringify(err));
     }
-
-    const { data, error } = await supabase.from('listings').insert(row).select().single();
-    if (error) throw error;
-    return data;
+    return res.json();
 }
 
 export async function updateListing(id, listingData) {
-    const updates = { ...listingData, updated_at: new Date().toISOString() };
-
-    if (updates.image instanceof File) {
-        const { data: { user } } = await supabase.auth.getUser();
-        const fileName = `${user.id}/${Date.now()}_${updates.image.name}`;
-        const { data: uploadData, error: uploadErr } = await supabase.storage
-            .from('listings')
-            .upload(fileName, updates.image);
-        if (uploadErr) throw uploadErr;
-        const { data: urlData } = supabase.storage.from('listings').getPublicUrl(uploadData.path);
-        updates.image_url = urlData.publicUrl;
-        delete updates.image;
+    const formData = new FormData();
+    for (const [key, val] of Object.entries(listingData)) {
+        if (val instanceof File) {
+            formData.append(key, val);
+        } else if (val !== undefined && val !== null) {
+            formData.append(key, val);
+        }
     }
 
-    if (updates.price) updates.price = parseFloat(updates.price);
-    if (updates.latitude) updates.latitude = parseFloat(updates.latitude);
-    if (updates.longitude) updates.longitude = parseFloat(updates.longitude);
-
-    const { data, error } = await supabase.from('listings').update(updates).eq('id', id).select().single();
-    if (error) throw error;
-    return data;
+    const token = getToken();
+    const res = await fetch(`${API_URL}/api/listings/${id}/`, {
+        method: 'PATCH',
+        headers: token ? { 'Authorization': `Token ${token}` } : {},
+        body: formData,
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || JSON.stringify(err));
+    }
+    return res.json();
 }
 
 export async function deleteListing(id) {
-    const { error } = await supabase.from('listings').delete().eq('id', id);
-    if (error) throw error;
+    await apiFetch(`/api/listings/${id}/`, { method: 'DELETE' });
 }
 
 // ──── Messaging ────
 
 export async function getConversations() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const data = await apiFetch('/api/messaging/conversations/');
+    const results = data.results || data;
+    const profile = JSON.parse(localStorage.getItem('profile') || '{}');
 
-    const { data, error } = await supabase
-        .from('conversations')
-        .select(`
-            *,
-            listing:listings(id, title),
-            buyer:profiles!buyer_id(id, username),
-            seller:profiles!seller_id(id, username)
-        `)
-        .or(`buyer_id.eq.${user.id},seller_id.eq.${user.id}`)
-        .order('updated_at', { ascending: false });
+    return results.map((conv) => {
+        const other = conv.buyer === profile.id
+            ? { id: conv.seller, username: conv.seller_username }
+            : { id: conv.buyer, username: conv.buyer_username };
 
-    if (error) throw error;
-
-    // Get last message + unread count for each
-    const enriched = await Promise.all(
-        data.map(async (conv) => {
-            const { data: msgs } = await supabase
-                .from('messages')
-                .select('*')
-                .eq('conversation_id', conv.id)
-                .order('created_at', { ascending: false })
-                .limit(1);
-
-            const { count } = await supabase
-                .from('messages')
-                .select('*', { count: 'exact', head: true })
-                .eq('conversation_id', conv.id)
-                .eq('is_read', false)
-                .neq('sender_id', user.id);
-
-            const other = conv.buyer_id === user.id ? conv.seller : conv.buyer;
-
-            return {
-                id: conv.id,
-                listing: conv.listing,
-                other_user: other,
-                last_message: msgs?.[0] || null,
-                unread_count: count || 0,
-                updated_at: conv.updated_at,
-            };
-        })
-    );
-
-    return enriched;
+        return {
+            id: conv.id,
+            listing: conv.listing ? { id: conv.listing, title: conv.listing_title } : null,
+            other_user: other,
+            last_message: conv.last_message_text ? { text: conv.last_message_text, created_at: conv.last_message_time } : null,
+            unread_count: conv.unread_count || 0,
+            updated_at: conv.updated_at,
+        };
+    });
 }
 
 export async function getOrCreateConversation(listingId, sellerId) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
-
-    // Check if exists
-    const { data: existing } = await supabase
-        .from('conversations')
-        .select('*')
-        .eq('buyer_id', user.id)
-        .eq('seller_id', sellerId)
-        .eq('listing_id', listingId)
-        .maybeSingle();
-
-    if (existing) return existing;
-
-    // Create
-    const { data, error } = await supabase
-        .from('conversations')
-        .insert({ buyer_id: user.id, seller_id: sellerId, listing_id: listingId })
-        .select()
-        .single();
-    if (error) throw error;
+    const data = await apiFetch('/api/messaging/conversations/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing: listingId, seller: sellerId }),
+    });
     return data;
 }
 
 export async function getMessages(conversationId) {
-    const { data, error } = await supabase
-        .from('messages')
-        .select('*, sender:profiles!sender_id(id, username), reactions(*)')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true });
-
-    if (error) throw error;
-
-    return data.map((m) => ({
+    const data = await apiFetch(`/api/messaging/conversations/${conversationId}/messages/`);
+    const results = data.results || data;
+    return results.map((m) => ({
         ...m,
-        sender_username: m.sender?.username,
+        sender_username: m.sender_username,
         reaction_summary: buildReactionSummary(m.reactions || []),
     }));
 }
@@ -220,171 +166,95 @@ function buildReactionSummary(reactions) {
 }
 
 export async function sendMessage(conversationId, text) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
-
-    const { data, error } = await supabase
-        .from('messages')
-        .insert({ conversation_id: conversationId, sender_id: user.id, text })
-        .select()
-        .single();
-    if (error) throw error;
-
-    // Update conversation timestamp
-    await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId);
-
-    return data;
+    return apiFetch(`/api/messaging/conversations/${conversationId}/send/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+    });
 }
 
 export async function sendMessageWithImage(conversationId, text, imageFile) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const formData = new FormData();
+    if (text) formData.append('text', text);
+    if (imageFile) formData.append('image', imageFile);
 
-    let imageUrl = '';
-    if (imageFile) {
-        const fileName = `chat/${user.id}/${Date.now()}_${imageFile.name}`;
-        const { data: uploadData, error: uploadErr } = await supabase.storage
-            .from('chat-images')
-            .upload(fileName, imageFile);
-        if (uploadErr) throw uploadErr;
-        const { data: urlData } = supabase.storage.from('chat-images').getPublicUrl(uploadData.path);
-        imageUrl = urlData.publicUrl;
+    const token = getToken();
+    const res = await fetch(`${API_URL}/api/messaging/conversations/${conversationId}/send/`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Token ${token}` } : {},
+        body: formData,
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || JSON.stringify(err));
     }
-
-    const { data, error } = await supabase
-        .from('messages')
-        .insert({
-            conversation_id: conversationId,
-            sender_id: user.id,
-            text: text || '',
-            image_url: imageUrl,
-        })
-        .select()
-        .single();
-    if (error) throw error;
-
-    await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId);
-
-    return data;
+    return res.json();
 }
 
-export async function reactToMessage(messageId, emoji) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
-
-    // Check if already exists (toggle)
-    const { data: existing } = await supabase
-        .from('reactions')
-        .select('id')
-        .eq('message_id', messageId)
-        .eq('user_id', user.id)
-        .eq('emoji', emoji)
-        .maybeSingle();
-
-    if (existing) {
-        await supabase.from('reactions').delete().eq('id', existing.id);
-        return { action: 'removed' };
-    } else {
-        await supabase.from('reactions').insert({ message_id: messageId, user_id: user.id, emoji });
-        return { action: 'added' };
-    }
+export async function reactToMessage(conversationId, messageId, emoji) {
+    return apiFetch(`/api/messaging/conversations/${conversationId}/react/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_id: messageId, emoji }),
+    });
 }
 
 export async function markConversationRead(conversationId) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    await supabase
-        .from('messages')
-        .update({ is_read: true })
-        .eq('conversation_id', conversationId)
-        .eq('is_read', false)
-        .neq('sender_id', user.id);
+    return apiFetch(`/api/messaging/conversations/${conversationId}/read/`, {
+        method: 'POST',
+    });
 }
 
 // ──── Profile ────
 
-export async function updateProfile(profileData) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+export async function getProfile() {
+    return apiFetch('/api/auth/profile/');
+}
 
-    const updates = { ...profileData, updated_at: new Date().toISOString() };
-    const { data, error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', user.id)
-        .select()
-        .single();
-    if (error) throw error;
-    return data;
+export async function updateProfile(profileData) {
+    return apiFetch('/api/auth/profile/', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profileData),
+    });
 }
 
 export async function uploadAvatar(file) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const formData = new FormData();
+    formData.append('avatar', file);
 
-    const fileName = `${user.id}/${Date.now()}_avatar.${file.name.split('.').pop()}`;
-    const { data: uploadData, error: uploadErr } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, file, { upsert: true });
-    if (uploadErr) throw uploadErr;
-
-    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(uploadData.path);
-    const avatarUrl = urlData.publicUrl;
-
-    // Update profile with new avatar URL
-    await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', user.id);
-
-    return avatarUrl;
+    const token = getToken();
+    const res = await fetch(`${API_URL}/api/auth/profile/`, {
+        method: 'PATCH',
+        headers: token ? { 'Authorization': `Token ${token}` } : {},
+        body: formData,
+    });
+    if (!res.ok) throw new Error('Avatar upload failed');
+    const data = await res.json();
+    return data.avatar_url;
 }
 
 // ──── Ratings ────
 
 export async function rateSeller(listingId, sellerId, score, review = '') {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
-
-    const { data, error } = await supabase
-        .from('ratings')
-        .insert({
-            listing_id: listingId,
-            buyer_id: user.id,
-            seller_id: sellerId,
+    return apiFetch('/api/ratings/rate/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            listing: listingId,
+            seller: sellerId,
             score,
             review,
-        })
-        .select()
-        .single();
-    if (error) throw error;
-
-    // Update seller's average rating
-    const { data: ratings } = await supabase
-        .from('ratings')
-        .select('score')
-        .eq('seller_id', sellerId);
-
-    if (ratings && ratings.length > 0) {
-        const avg = ratings.reduce((sum, r) => sum + r.score, 0) / ratings.length;
-        await supabase.from('profiles').update({
-            rating: Math.round(avg * 10) / 10,
-            rating_count: ratings.length,
-        }).eq('id', sellerId);
-    }
-
-    return data;
+        }),
+    });
 }
 
 export async function getSellerRatings(sellerId) {
-    const { data, error } = await supabase
-        .from('ratings')
-        .select('*, buyer:profiles!buyer_id(id, username, avatar_url)')
-        .eq('seller_id', sellerId)
-        .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data;
+    const data = await apiFetch(`/api/ratings/seller/${sellerId}/`);
+    return data.results || data;
 }
 
-// ──── Default export for backward compat ────
+// ──── Default export ────
 
 const api = {
     getListings,
@@ -399,6 +269,7 @@ const api = {
     sendMessageWithImage,
     reactToMessage,
     markConversationRead,
+    getProfile,
     updateProfile,
     uploadAvatar,
     rateSeller,

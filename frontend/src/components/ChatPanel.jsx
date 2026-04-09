@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
-import { supabase } from '../lib/supabase';
+
 import { ArrowLeft, ImageIcon, Send } from './Icons';
 
 const REACTIONS = ['\u2764\uFE0F', '\uD83D\uDC4D', '\uD83D\uDE02', '\uD83D\uDE2E', '\uD83D\uDE22'];
@@ -19,7 +19,7 @@ export default function ChatPanel({ isOpen, onClose, listing, sellerId }) {
     const [showReactions, setShowReactions] = useState(null);
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
-    const channelRef = useRef(null);
+    const pollRef = useRef(null);
 
     // Load conversations on open
     useEffect(() => {
@@ -31,9 +31,9 @@ export default function ChatPanel({ isOpen, onClose, listing, sellerId }) {
             setMessages([]);
             setImageFile(null);
             setImagePreview(null);
-            if (channelRef.current) {
-                supabase.removeChannel(channelRef.current);
-                channelRef.current = null;
+            if (pollRef.current) {
+                clearInterval(pollRef.current);
+                pollRef.current = null;
             }
         }
     }, [isOpen, user]);
@@ -87,34 +87,13 @@ export default function ChatPanel({ isOpen, onClose, listing, sellerId }) {
     };
 
     const subscribeToMessages = (convId) => {
-        if (channelRef.current) {
-            supabase.removeChannel(channelRef.current);
+        if (pollRef.current) {
+            clearInterval(pollRef.current);
         }
-
-        const channel = supabase
-            .channel(`messages:${convId}`)
-            .on('postgres_changes', {
-                event: 'INSERT',
-                schema: 'public',
-                table: 'messages',
-                filter: `conversation_id=eq.${convId}`,
-            }, async (payload) => {
-                const newMsg = payload.new;
-                // Don't add if already in list
-                setMessages((prev) => {
-                    if (prev.find((m) => m.id === newMsg.id)) return prev;
-                    return [...prev, {
-                        ...newMsg,
-                        sender_username: newMsg.sender_id === user?.id ? user.username : '',
-                        reaction_summary: [],
-                    }];
-                });
-                // Reload to get proper sender username
-                setTimeout(() => loadMessages(convId), 500);
-            })
-            .subscribe();
-
-        channelRef.current = channel;
+        // Poll every 5 seconds for new messages
+        pollRef.current = setInterval(() => {
+            loadMessages(convId);
+        }, 5000);
     };
 
     const handleSend = async () => {
@@ -158,7 +137,7 @@ export default function ChatPanel({ isOpen, onClose, listing, sellerId }) {
 
     const handleReact = async (messageId, emoji) => {
         try {
-            await api.reactToMessage(messageId, emoji);
+            await api.reactToMessage(activeConv.id, messageId, emoji);
             loadMessages(activeConv.id);
         } catch (err) {
             console.error('Failed to react:', err);

@@ -124,7 +124,7 @@ export default function DashboardPage() {
         setSaving(true);
         try {
             await api.updateProfile(profileForm);
-            await fetchProfile(user.id);
+            await fetchProfile();
             setEditing(false);
         } catch (err) {
             alert('Failed to update profile.');
@@ -139,9 +139,9 @@ export default function DashboardPage() {
         setUploadingAvatar(true);
         try {
             await api.uploadAvatar(file);
-            await fetchProfile(user.id);
+            await fetchProfile();
         } catch (err) {
-            alert('Failed to upload avatar. Make sure the avatars storage bucket exists in Supabase.');
+            alert('Failed to upload avatar.');
         } finally {
             setUploadingAvatar(false);
         }

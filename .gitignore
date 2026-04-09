@@ -26,6 +26,8 @@ dist/
 # Env
 .env
 .env.local
+.env.*
+frontend/.env*
 
 # Static collected
 staticfiles/

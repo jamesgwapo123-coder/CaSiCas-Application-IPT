@@ -1,126 +1,157 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
 
+const API_URL = import.meta.env.VITE_API_URL || '';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
-    const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    const fetchProfile = async (userId) => {
-        const { data } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-        setProfile(data);
-        return data;
+    const fetchProfile = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setUser(null);
+            setLoading(false);
+            return null;
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/api/auth/profile/`, {
+                headers: { 'Authorization': `Token ${token}` },
+            });
+            if (!res.ok) throw new Error('Token invalid');
+            const data = await res.json();
+            const merged = {
+                id: data.id,
+                username: data.username,
+                email: data.email,
+                role: data.role,
+                first_name: data.first_name || '',
+                last_name: data.last_name || '',
+                phone: data.phone || '',
+                bio: data.bio || '',
+                avatar_url: data.avatar_url || '',
+                latitude: data.latitude,
+                longitude: data.longitude,
+                total_sales: data.total_sales || 0,
+                total_purchases: data.total_purchases || 0,
+                rating: data.rating || 0,
+                rating_count: data.rating_count || 0,
+                created_at: data.created_at,
+            };
+            setUser(merged);
+            localStorage.setItem('profile', JSON.stringify(merged));
+            return merged;
+        } catch {
+            localStorage.removeItem('token');
+            localStorage.removeItem('profile');
+            setUser(null);
+            return null;
+        }
     };
 
     useEffect(() => {
-        // Check current session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            if (session?.user) {
-                setUser(session.user);
-                fetchProfile(session.user.id);
-            }
-            setLoading(false);
-        });
-
-        // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (_event, session) => {
-                if (session?.user) {
-                    setUser(session.user);
-                    await fetchProfile(session.user.id);
-                } else {
-                    setUser(null);
-                    setProfile(null);
-                }
-            }
-        );
-
-        return () => subscription.unsubscribe();
+        fetchProfile().finally(() => setLoading(false));
     }, []);
 
     const login = async ({ username, password }) => {
-        // Always use the convention: username@casicas.local
-        const email = username.includes('@') ? username : `${username}@casicas.local`;
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        const prof = await fetchProfile(data.user.id);
-        return { user: { ...data.user, ...prof } };
+        const res = await fetch(`${API_URL}/api/auth/login/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || err.non_field_errors?.[0] || 'Invalid username or password.');
+        }
+        const data = await res.json();
+        localStorage.setItem('token', data.token);
+        const merged = {
+            id: data.user.id,
+            username: data.user.username,
+            email: data.user.email,
+            role: data.user.role,
+            first_name: data.user.first_name || '',
+            last_name: data.user.last_name || '',
+            phone: data.user.phone || '',
+            bio: data.user.bio || '',
+            avatar_url: data.user.avatar_url || '',
+            latitude: data.user.latitude,
+            longitude: data.user.longitude,
+            total_sales: data.user.total_sales || 0,
+            total_purchases: data.user.total_purchases || 0,
+            rating: data.user.rating || 0,
+            rating_count: data.user.rating_count || 0,
+            created_at: data.user.created_at,
+        };
+        setUser(merged);
+        localStorage.setItem('profile', JSON.stringify(merged));
+        return { user: merged };
     };
 
     const register = async ({ username, email, password, role, first_name, last_name }) => {
-        // Always use username@casicas.local for Supabase Auth
-        // Store the real email in the profile as contact info
-        const authEmail = `${username}@casicas.local`;
-        const { data, error } = await supabase.auth.signUp({
-            email: authEmail,
-            password,
-            options: {
-                data: {
-                    username,
-                    role: role || 'buyer',
-                    first_name: first_name || '',
-                    last_name: last_name || '',
-                },
-            },
-        });
-        if (error) throw error;
-
-        // Update profile with role, name, and save real email as contact
-        if (data.user) {
-            await supabase.from('profiles').update({
+        const res = await fetch(`${API_URL}/api/auth/register/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
                 username,
+                email: email || '',
+                password,
+                password_confirm: password,
                 role: role || 'buyer',
                 first_name: first_name || '',
                 last_name: last_name || '',
-                email: email || '',
-            }).eq('id', data.user.id);
-        }
-
-        // Auto-login after registration
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-            email: authEmail,
-            password,
+            }),
         });
-        if (signInError) throw signInError;
-
-        const prof = await fetchProfile(signInData.user.id);
-        return { user: { ...signInData.user, ...prof } };
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            const msg = err.detail || err.username?.[0] || err.email?.[0] || err.password?.[0] || 'Registration failed.';
+            throw new Error(msg);
+        }
+        const data = await res.json();
+        localStorage.setItem('token', data.token);
+        const merged = {
+            id: data.user.id,
+            username: data.user.username,
+            email: data.user.email,
+            role: data.user.role,
+            first_name: data.user.first_name || '',
+            last_name: data.user.last_name || '',
+            phone: data.user.phone || '',
+            bio: data.user.bio || '',
+            avatar_url: data.user.avatar_url || '',
+            latitude: data.user.latitude,
+            longitude: data.user.longitude,
+            total_sales: data.user.total_sales || 0,
+            total_purchases: data.user.total_purchases || 0,
+            rating: data.user.rating || 0,
+            rating_count: data.user.rating_count || 0,
+            created_at: data.user.created_at,
+        };
+        setUser(merged);
+        localStorage.setItem('profile', JSON.stringify(merged));
+        return { user: merged };
     };
 
     const logout = async () => {
-        await supabase.auth.signOut();
+        const token = localStorage.getItem('token');
+        if (token) {
+            try {
+                await fetch(`${API_URL}/api/auth/logout/`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Token ${token}` },
+                });
+            } catch {
+                // Ignore logout errors
+            }
+        }
+        localStorage.removeItem('token');
+        localStorage.removeItem('profile');
         setUser(null);
-        setProfile(null);
     };
 
-    // Merge user + profile for compatibility
-    const mergedUser = user && profile ? {
-        id: user.id,
-        username: profile.username,
-        email: user.email,
-        role: profile.role,
-        first_name: profile.first_name || '',
-        last_name: profile.last_name || '',
-        phone: profile.phone,
-        bio: profile.bio,
-        avatar_url: profile.avatar_url || '',
-        latitude: profile.latitude,
-        longitude: profile.longitude,
-        total_sales: profile.total_sales || 0,
-        total_purchases: profile.total_purchases || 0,
-        rating: profile.rating || 0,
-        rating_count: profile.rating_count || 0,
-        created_at: profile.created_at,
-    } : null;
-
     return (
-        <AuthContext.Provider value={{ user: mergedUser, loading, login, register, logout, fetchProfile }}>
+        <AuthContext.Provider value={{ user, loading, login, register, logout, fetchProfile }}>
             {children}
         </AuthContext.Provider>
     );

@@ -51,7 +51,7 @@ class ListingViewSet(viewsets.ModelViewSet):
         # Status override
         status_filter = params.get('status')
         if status_filter:
-            queryset = Listing.objects.filter(status=status_filter)
+            queryset = queryset.filter(status=status_filter)
 
         # Geo-filtering with Haversine
         lat = params.get('lat')

@@ -41,9 +41,24 @@ class LoginSerializer(serializers.Serializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    avatar_url = serializers.SerializerMethodField()
+
     class Meta:
         model = CustomUser
         fields = ['id', 'username', 'email', 'first_name', 'last_name',
-                  'role', 'phone', 'bio', 'latitude', 'longitude',
+                  'role', 'phone', 'bio', 'avatar', 'avatar_url',
+                  'latitude', 'longitude', 'rating', 'rating_count',
+                  'total_sales', 'total_purchases',
                   'created_at', 'updated_at']
-        read_only_fields = ['id', 'username', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'username', 'rating', 'rating_count',
+                            'total_sales', 'total_purchases',
+                            'created_at', 'updated_at']
+        extra_kwargs = {'avatar': {'write_only': True}}
+
+    def get_avatar_url(self, obj):
+        if obj.avatar:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+        return ''
