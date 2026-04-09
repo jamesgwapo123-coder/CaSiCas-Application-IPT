@@ -1,16 +1,18 @@
 """
-Seed the database with fake users and listings with product images.
+Seed the database with fake users and listings using local media-pic images.
 Usage: python manage.py seed_data
 """
+import os
 import random
+import shutil
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+from django.core.files import File
+from django.conf import settings
 from accounts.models import CustomUser
 from listings.models import Listing
 
-
-# ── Fake people ──────────────────────────────────────────────────
 
 FAKE_USERS = [
     {"username": "maria_santos", "first_name": "Maria", "last_name": "Santos", "role": "seller"},
@@ -30,71 +32,59 @@ FAKE_USERS = [
     {"username": "nina_castillo", "first_name": "Nina", "last_name": "Castillo", "role": "buyer"},
 ]
 
-# ── Listings with product-specific image keywords ────────────────
-
+# Each listing maps to a local image from media-pic/
 LISTINGS_DATA = [
     # Electronics
-    {"title": "iPhone 14 Pro Max 256GB", "desc": "Deep Purple, 95% battery health, complete with box and charger.", "price": 42000, "cat": "electronics", "type": "sell", "img": "iphone,smartphone"},
-    {"title": "Samsung Galaxy S23 Ultra", "desc": "Phantom Black, 512GB storage, slight scratch on back glass.", "price": 38000, "cat": "electronics", "type": "sell", "img": "samsung,phone"},
-    {"title": "MacBook Air M2 2022", "desc": "Midnight, 8GB/256GB. Used for 6 months only. No dents.", "price": 55000, "cat": "electronics", "type": "sell", "img": "macbook,laptop"},
-    {"title": "Sony WH-1000XM5 Headphones", "desc": "Black, noise cancelling. Barely used, comes with travel case.", "price": 12500, "cat": "electronics", "type": "sell", "img": "headphones,audio"},
-    {"title": "Nintendo Switch OLED", "desc": "White model with 3 games: Zelda TOTK, Mario Kart, Splatoon 3.", "price": 16000, "cat": "electronics", "type": "sell", "img": "nintendo,gaming"},
-    {"title": "iPad Air 5th Gen WiFi", "desc": "Space Gray, 64GB. Perfect for students. Apple Pencil included.", "price": 28000, "cat": "electronics", "type": "sell", "img": "ipad,tablet"},
-    {"title": "Gaming PC RTX 4060", "desc": "Ryzen 5 5600X, 16GB RAM, 1TB SSD. Built last year.", "price": 45000, "cat": "electronics", "type": "sell", "img": "gaming,computer"},
-    {"title": "Canon EOS R50 Mirrorless", "desc": "With 18-45mm lens kit. Only 2k shutter count. Great for vloggers.", "price": 35000, "cat": "electronics", "type": "sell", "img": "camera,canon"},
-    {"title": "JBL Flip 6 Bluetooth Speaker", "desc": "Teal color. Waterproof and dustproof. Excellent bass.", "price": 5500, "cat": "electronics", "type": "sell", "img": "speaker,bluetooth"},
-    {"title": "Apple Watch Series 9 GPS", "desc": "45mm Midnight Aluminum. AppleCare+ until 2025.", "price": 22000, "cat": "electronics", "type": "sell", "img": "smartwatch,apple"},
+    {"title": "ThinkPad X220 Laptop", "desc": "Classic business laptop. i5, 8GB RAM, SSD. Perfect for students and devs.", "price": 8500, "cat": "electronics", "type": "sell", "img": "thinkpadx220.jpg"},
+    {"title": "ThinkPad Tablet 2-in-1", "desc": "Convertible tablet with stylus. Great for note-taking and light work.", "price": 12000, "cat": "electronics", "type": "sell", "img": "thinkpadtablet.jpg"},
+    {"title": "Vintage PC Desktop", "desc": "Retro computing setup. Working condition. Collectors item.", "price": 5000, "cat": "electronics", "type": "sell", "img": "vintagepc.jpg"},
+    {"title": "Gaming PC Ryzen Build", "desc": "Ryzen system unit. Great for gaming and productivity. Clean build.", "price": 35000, "cat": "electronics", "type": "sell", "img": "systemunitryzen.jpg"},
+    {"title": "Suit Laptop Bundle", "desc": "Professional laptop setup. Ready for business meetings and presentations.", "price": 22000, "cat": "electronics", "type": "sell", "img": "suitlaptop.jpg"},
+    {"title": "Nokia Classic Phone", "desc": "Indestructible Nokia. Still works perfectly. Great backup phone.", "price": 1500, "cat": "electronics", "type": "sell", "img": "thornokia.jpg"},
+    {"title": "Tank Mouse Gaming", "desc": "Unique tank-shaped gaming mouse. Conversation starter. Works great.", "price": 800, "cat": "electronics", "type": "sell", "img": "tankmouse.jpg"},
+
+    # Musical Instruments
+    {"title": "Acoustic Guitar - Sunburst", "desc": "Beautiful sunburst finish. Great action. Perfect for beginners.", "price": 6500, "cat": "other", "type": "sell", "img": "guitar1.jpg"},
+    {"title": "Classical Guitar - Nylon", "desc": "Nylon string classical guitar. Warm tone. Good for fingerpicking.", "price": 5000, "cat": "other", "type": "sell", "img": "guitar2.jpg"},
+    {"title": "Electric Guitar - Red", "desc": "Electric guitar with amp. Rock-ready setup. Barely used.", "price": 12000, "cat": "other", "type": "sell", "img": "guitar3.jpg"},
+    {"title": "Grand Piano - Black", "desc": "Full-size grand piano. Excellent condition. Tuned recently.", "price": 150000, "cat": "other", "type": "sell", "img": "piano.jpg"},
+    {"title": "Upright Piano - Mahogany", "desc": "Classic upright piano. Rich sound. Perfect for home practice.", "price": 45000, "cat": "other", "type": "sell", "img": "paino2.jpg"},
+    {"title": "Digital Piano - 88 Keys", "desc": "Weighted keys, multiple voices. MIDI capable. Like new.", "price": 25000, "cat": "other", "type": "sell", "img": "piano3.jpg"},
+    {"title": "Studio Piano - White", "desc": "Beautiful white studio piano. Showroom condition.", "price": 85000, "cat": "other", "type": "sell", "img": "piano4.jpg"},
+    {"title": "Baby Grand Piano", "desc": "Compact baby grand. Perfect for apartments. Stunning sound.", "price": 120000, "cat": "other", "type": "sell", "img": "piano5.jpg"},
+    {"title": "Violin - Student Grade", "desc": "4/4 student violin with bow and case. Great for beginners.", "price": 8000, "cat": "other", "type": "sell", "img": "violin1.jpg"},
+    {"title": "Violin - Intermediate", "desc": "Spruce top, maple back. Rich warm tone. With hardshell case.", "price": 15000, "cat": "other", "type": "sell", "img": "violin2.jpg"},
+    {"title": "Violin - Professional", "desc": "Handcrafted violin. Exceptional projection and clarity.", "price": 35000, "cat": "other", "type": "sell", "img": "violin3.jpg"},
+    {"title": "Electric Violin - Modern", "desc": "5-string electric violin. Built-in pickup. Stage-ready.", "price": 18000, "cat": "other", "type": "sell", "img": "violin4.jpg"},
+    {"title": "Used Drum Kit - Complete", "desc": "5-piece drum kit with cymbals, hardware, and throne. Gigging ready.", "price": 20000, "cat": "other", "type": "sell", "img": "useddrum.jpg"},
 
     # Furniture
-    {"title": "L-Shaped Computer Desk", "desc": "Walnut finish, 140x120cm. Sturdy steel frame. Cable management.", "price": 6500, "cat": "furniture", "type": "sell", "img": "desk,office"},
-    {"title": "Ergonomic Office Chair", "desc": "Mesh back, adjustable lumbar support, 360 swivel. Black.", "price": 8000, "cat": "furniture", "type": "sell", "img": "office,chair"},
-    {"title": "Queen Size Bed Frame", "desc": "Solid wood, minimalist design. Mattress NOT included.", "price": 12000, "cat": "furniture", "type": "sell", "img": "bed,furniture"},
-    {"title": "4-Seater Dining Table Set", "desc": "Wooden table with 4 cushioned chairs. Perfect for small apartments.", "price": 9500, "cat": "furniture", "type": "sell", "img": "dining,table"},
-    {"title": "Bookshelves 5-Tier Set", "desc": "Industrial style, metal and wood. Set of 2. Holds heavy books.", "price": 4500, "cat": "furniture", "type": "sell", "img": "bookshelf,shelf"},
-    {"title": "Sofa Bed Convertible", "desc": "Gray fabric, folds flat into a double bed. Great for guests.", "price": 15000, "cat": "furniture", "type": "sell", "img": "sofa,couch"},
-    {"title": "Standing Desk Adjustable", "desc": "Electric height adjustment, 120x60cm. White oak surface.", "price": 18000, "cat": "furniture", "type": "sell", "img": "standing,desk"},
+    {"title": "Vintage Wooden Chair", "desc": "Hand-carved vintage chair. Solid wood. Beautiful patina.", "price": 4500, "cat": "furniture", "type": "sell", "img": "vintagechair.jpg"},
+    {"title": "Wooden Dining Chair Set", "desc": "Set of 4 wooden dining chairs. Sturdy and stylish.", "price": 6000, "cat": "furniture", "type": "sell", "img": "wodenchair.jpg"},
+    {"title": "Plastic Stackable Chairs", "desc": "Set of 6 plastic chairs. Stackable. Perfect for events or outdoor.", "price": 2000, "cat": "furniture", "type": "sell", "img": "plasticchair.jpg"},
+    {"title": "Human-Shaped Art Chair", "desc": "Unique art piece chair. Functional sculpture. Statement furniture.", "price": 15000, "cat": "furniture", "type": "sell", "img": "humanchair.jpg"},
+    {"title": "Antique Torture Chair Replica", "desc": "Museum-quality replica. Medieval design. Display piece only.", "price": 25000, "cat": "furniture", "type": "sell", "img": "torturechair.jpg"},
+    {"title": "Possessed-Looking Chair", "desc": "Creepy antique chair. Perfect for Halloween or horror-themed rooms.", "price": 8000, "cat": "furniture", "type": "sell", "img": "possesschair.jpg"},
 
     # Vehicles
-    {"title": "Honda Click 125i 2022", "desc": "Matte Black, 15k km. Well maintained, complete papers.", "price": 65000, "cat": "vehicles", "type": "sell", "img": "scooter,motorcycle"},
-    {"title": "Toyota Vios 2019 1.3E AT", "desc": "White, 45k km. Casa maintained. New tires. No flood.", "price": 520000, "cat": "vehicles", "type": "sell", "img": "sedan,toyota"},
-    {"title": "Yamaha NMAX 2023", "desc": "Blue, ABS model. 8k km only. First owner.", "price": 115000, "cat": "vehicles", "type": "sell", "img": "yamaha,scooter"},
-    {"title": "Mountain Bike Trinx M136", "desc": "27.5 wheels, 21-speed Shimano. Lightweight aluminum frame.", "price": 7500, "cat": "vehicles", "type": "sell", "img": "bicycle,mountain"},
-    {"title": "Suzuki Raider R150 Fi", "desc": "Red, 2021 model. 20k km. Modified exhaust.", "price": 58000, "cat": "vehicles", "type": "sell", "img": "motorcycle,suzuki"},
+    {"title": "Honda Motorcycle Custom", "desc": "Custom Honda. Modified exhaust and body. Head-turner on the road.", "price": 55000, "cat": "vehicles", "type": "sell", "img": "hondaDog.jpg"},
+    {"title": "Sports Car - Red", "desc": "Red sports car. Well maintained. Complete documents. Ready to drive.", "price": 850000, "cat": "vehicles", "type": "sell", "img": "car3.jpg"},
+    {"title": "Sedan - Silver", "desc": "Family sedan. Low mileage. Automatic transmission. Fuel efficient.", "price": 450000, "cat": "vehicles", "type": "sell", "img": "car4.jpg"},
+    {"title": "SUV - Black", "desc": "4x4 SUV. Perfect for road trips. Leather interior. Sunroof.", "price": 750000, "cat": "vehicles", "type": "sell", "img": "car5.jpg"},
+    {"title": "Mountain Bike - 21 Speed", "desc": "Aluminum frame mountain bike. 21-speed Shimano gears. Disc brakes.", "price": 7500, "cat": "vehicles", "type": "sell", "img": "bike.jpg"},
+    {"title": "Banana Car Art Vehicle", "desc": "Custom banana-shaped vehicle. Runs on gas. Ultimate meme mobile.", "price": 200000, "cat": "vehicles", "type": "sell", "img": "bananacar.jpg"},
+    {"title": "Toilet-Themed Motorcycle", "desc": "One-of-a-kind toilet motorcycle. Fully functional. Viral sensation.", "price": 75000, "cat": "vehicles", "type": "sell", "img": "toiletmotor.jpg"},
+    {"title": "Mr. Bean Special Edition Car", "desc": "Iconic green car with modifications. Complete gatling accessory. Fun!", "price": 350000, "cat": "vehicles", "type": "sell", "img": "mrbeancarwithgatling.jpg"},
 
     # Clothing
-    {"title": "Vintage Levis 501 Jeans", "desc": "Size 32, medium wash. Authentic vintage from the 90s.", "price": 2500, "cat": "clothing", "type": "sell", "img": "jeans,denim"},
-    {"title": "Nike Air Max 90 Size 10", "desc": "White/Black colorway. Worn twice. With original box.", "price": 5000, "cat": "clothing", "type": "sell", "img": "sneakers,nike"},
-    {"title": "Uniqlo Ultra Light Down Jacket", "desc": "Navy, size M. Perfect for cold weather trips.", "price": 1800, "cat": "clothing", "type": "sell", "img": "jacket,winter"},
-    {"title": "Adidas Originals Hoodie", "desc": "Black, size L. Trefoil logo. Brand new with tags.", "price": 2200, "cat": "clothing", "type": "sell", "img": "hoodie,adidas"},
-    {"title": "Bundle: 10 Preloved T-Shirts", "desc": "Assorted brands, sizes M-L. Good condition. Take all.", "price": 800, "cat": "clothing", "type": "sell", "img": "tshirt,clothing"},
-    {"title": "Formal Barong Tagalog", "desc": "Handwoven pina-jusi blend. Size M. Worn once for graduation.", "price": 3500, "cat": "clothing", "type": "sell", "img": "formal,shirt"},
+    {"title": "Designer Drip Outfit", "desc": "Full designer outfit. Streetwear vibes. Flex-worthy drip.", "price": 12000, "cat": "clothing", "type": "sell", "img": "drip.png"},
 
-    # Services
-    {"title": "Home Cleaning Deep Clean", "desc": "3BR house deep cleaning. Includes kitchen and bathrooms. Cebu area.", "price": 1500, "cat": "services", "type": "sell", "img": "cleaning,home"},
-    {"title": "Web Developer for Hire", "desc": "React/Node.js developer. Available for freelance. Portfolio available.", "price": 500, "cat": "services", "type": "sell", "img": "coding,developer"},
-    {"title": "Math Tutor College Level", "desc": "Calculus, Linear Algebra, Statistics. Per hour rate.", "price": 300, "cat": "services", "type": "sell", "img": "tutor,education"},
-    {"title": "Pet Grooming for Dogs", "desc": "Full grooming: bath, haircut, nail trim, ear clean. Small-medium.", "price": 400, "cat": "services", "type": "sell", "img": "dog,grooming"},
-    {"title": "Motorcycle Repair Service", "desc": "Engine overhaul, oil change, brake pads. Pickup available in Cebu.", "price": 800, "cat": "services", "type": "sell", "img": "mechanic,repair"},
-    {"title": "Photography Events Coverage", "desc": "Wedding, debut, birthday. 4 hours + 100 edited photos.", "price": 5000, "cat": "services", "type": "sell", "img": "camera,photography"},
-
-    # Food
-    {"title": "Homemade Bibingka 12 pcs", "desc": "Traditional rice cake. Made fresh daily. Perfect for merienda.", "price": 250, "cat": "food", "type": "sell", "img": "ricecake,dessert"},
-    {"title": "Lechon Belly 3kg", "desc": "Crispy skin, juicy meat. Pre-order 1 day ahead. Cebu pickup.", "price": 2400, "cat": "food", "type": "sell", "img": "roast,pork"},
-    {"title": "Organic Vegetables Bundle", "desc": "Lettuce, tomatoes, kangkong, sitaw. Farm-fresh.", "price": 350, "cat": "food", "type": "sell", "img": "vegetables,organic"},
-    {"title": "Korean Bento Meal Prep", "desc": "5-day meal prep: bibimbap, japchae, kimchi rice. Delivered.", "price": 1500, "cat": "food", "type": "sell", "img": "bento,korean"},
-    {"title": "Durian Candy 500g Pack", "desc": "Made from real Davao durian. Sweet and chewy. Great pasalubong.", "price": 180, "cat": "food", "type": "sell", "img": "candy,sweets"},
-
-    # Other
-    {"title": "Camping Tent 4 Person", "desc": "Waterproof, double-layer. Used 3 times. Easy setup in 5 min.", "price": 3500, "cat": "other", "type": "sell", "img": "tent,camping"},
-    {"title": "Acoustic Guitar Yamaha F310", "desc": "Natural finish. Comes with gig bag, capo, picks, and tuner.", "price": 6000, "cat": "other", "type": "sell", "img": "guitar,acoustic"},
-    {"title": "Harry Potter Complete Set", "desc": "Bloomsbury paperback edition. English. Good condition.", "price": 2800, "cat": "other", "type": "sell", "img": "books,reading"},
-    {"title": "Kids Bicycle Training Wheels", "desc": "Pink, for ages 4-7. Basket included. Barely used.", "price": 2000, "cat": "other", "type": "sell", "img": "bicycle,kids"},
-    {"title": "Gym Dumbbells 20kg Pair", "desc": "Rubber-coated, hex shape. No rolling. Great for home gym.", "price": 3000, "cat": "other", "type": "sell", "img": "dumbbell,fitness"},
-    {"title": "Monstera Deliciosa Plant", "desc": "Large, established plant in ceramic pot. 3 feet tall.", "price": 1200, "cat": "other", "type": "sell", "img": "monstera,plant"},
-    {"title": "Board Games Bundle", "desc": "Settlers of Catan, Ticket to Ride, Codenames. Complete sets.", "price": 3500, "cat": "other", "type": "sell", "img": "boardgame,game"},
-    {"title": "Baby Stroller Joie", "desc": "Lightweight, foldable. Rain cover included. 0-3 years.", "price": 4000, "cat": "other", "type": "sell", "img": "stroller,baby"},
-    {"title": "Portable Projector Xiaomi", "desc": "1080p, built-in speaker. Perfect for movie nights.", "price": 8500, "cat": "other", "type": "sell", "img": "projector,tech"},
-    {"title": "Dog Crate Large Foldable", "desc": "Metal crate for large breeds. 42 inches. Easy clean tray.", "price": 2500, "cat": "other", "type": "sell", "img": "pet,crate"},
+    # Other / Unique
+    {"title": "Galaxy Edition Board Game", "desc": "Rare galaxy edition board game. Complete set. Never opened.", "price": 3500, "cat": "other", "type": "sell", "img": "galaxyeditiongame.jpg"},
+    {"title": "Atomic Bomb Model", "desc": "Detailed scale model replica. Educational display piece. Metal build.", "price": 5000, "cat": "other", "type": "sell", "img": "atomicbomb.jpg"},
+    {"title": "Military Tank Model", "desc": "Large-scale tank model. Hand-painted details. Museum quality.", "price": 8000, "cat": "other", "type": "sell", "img": "tank.jpg"},
+    {"title": "ThinkPad X230 Parts", "desc": "ThinkPad X230 for parts or repair. Screen works. Battery dead.", "price": 3000, "cat": "electronics", "type": "sell", "img": "x230.jpg"},
+    {"title": "WhatsApp Bird Plushie", "desc": "Adorable bird plushie. WhatsApp meme vibes. Soft and huggable.", "price": 500, "cat": "other", "type": "sell", "img": "whatsapp birb.jpg"},
 ]
 
 
@@ -122,10 +112,12 @@ def random_address():
 
 
 class Command(BaseCommand):
-    help = "Seed database with 15 fake users and 50 listings with product images"
+    help = "Seed database with fake users and listings using local media-pic images"
 
     def handle(self, *args, **options):
         self.stdout.write("Seeding database...")
+
+        media_pic_dir = os.path.join(settings.BASE_DIR, 'media-pic')
 
         # 1. Create users
         users = []
@@ -152,14 +144,10 @@ class Command(BaseCommand):
 
         sellers = [u for u in users if u.role == "seller"]
 
-        # 2. Create listings with product image URLs
+        # 2. Create listings with local images
         for i, ld in enumerate(LISTINGS_DATA):
             seller = sellers[i % len(sellers)]
             lat, lng = random_cebu_coords()
-
-            # Use loremflickr for category-relevant product images
-            keywords = ld.get("img", "product")
-            img_url = f"https://loremflickr.com/640/480/{keywords}?lock={i}"
 
             listing, created = Listing.objects.get_or_create(
                 title=ld["title"],
@@ -173,12 +161,19 @@ class Command(BaseCommand):
                     "longitude": lng,
                     "address": random_address(),
                     "status": "active",
-                    "image_url": img_url,
                 },
             )
 
             if created:
-                self.stdout.write(f"  + [{i+1}/50] {ld['title']}")
+                # Attach local image from media-pic/
+                img_filename = ld.get("img", "")
+                img_path = os.path.join(media_pic_dir, img_filename)
+                if img_filename and os.path.exists(img_path):
+                    with open(img_path, 'rb') as f:
+                        listing.image.save(img_filename, File(f), save=True)
+                    self.stdout.write(f"  + [{i+1}/{len(LISTINGS_DATA)}] {ld['title']} ({img_filename})")
+                else:
+                    self.stdout.write(f"  + [{i+1}/{len(LISTINGS_DATA)}] {ld['title']} (no image)")
             else:
                 self.stdout.write(f"  - Listing exists: {ld['title']}")
 
